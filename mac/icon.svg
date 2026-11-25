@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2A3747"/>
+      <stop offset="1" stop-color="#18202B"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#000" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+  <!-- macOS icon grid: 824px squircle inside the 1024 canvas -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)" filter="url(#shadow)"/>
+  <!-- a stack of file rows; one is highlighted, like a search hit -->
+  <rect x="246" y="300" width="532" height="64" rx="18" fill="#3C4B5E"/>
+  <rect x="246" y="420" width="532" height="92" rx="22" fill="#F6DA4A"/>
+  <rect x="290" y="452" width="250" height="28" rx="14" fill="#1D2633" opacity="0.85"/>
+  <rect x="246" y="568" width="532" height="64" rx="18" fill="#3C4B5E"/>
+  <rect x="246" y="688" width="360" height="64" rx="18" fill="#3C4B5E"/>
+</svg>

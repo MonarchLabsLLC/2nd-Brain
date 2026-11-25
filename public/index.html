@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>2ndBrain</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css?v=6">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231D2633'/><rect x='7' y='13' width='18' height='7' rx='2' fill='%23F6DA4A'/></svg>">
+</head>
+<body>
+  <div class="app">
+    <aside class="rail" aria-label="Filters">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <strong>2ndBrain</strong>
+          <span id="root-path" class="muted small"></span>
+        </div>
+      </div>
+      <nav id="rail-nav"></nav>
+      <div class="rail-foot">
+        <button id="organize-btn" class="btn btn-ink">Organize Downloads</button>
+        <button id="name-btn" class="btn btn-quiet">Name unnamed files</button>
+        <button id="reindex-btn" class="btn btn-quiet">Reindex now</button>
+        <div id="index-status" class="index-status" aria-live="polite"></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="searchbar">
+        <label for="q" class="visually-hidden">Search your downloads</label>
+        <input id="q" type="search" autocomplete="off" spellcheck="false"
+          placeholder="Search names, folders, links and text inside files">
+        <div class="toolbar">
+          <p id="result-count" class="muted" aria-live="polite"></p>
+          <div class="toolbar-right">
+            <label class="select">
+              <span class="visually-hidden">Sort</span>
+              <select id="sort">
+                <option value="">Best match</option>
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+                <option value="name">Name</option>
+                <option value="largest">Largest</option>
+              </select>
+            </label>
+            <div class="seg" role="group" aria-label="View">
+              <button data-view="grid" aria-pressed="false">Grid</button>
+              <button data-view="list" aria-pressed="false">List</button>
+            </div>
+          </div>
+        </div>
+      </header>
+      <section id="results" class="results" aria-label="Files"></section>
+      <div class="more-wrap"><button id="more" class="btn btn-quiet" hidden>Show more</button></div>
+    </main>
+
+    <aside id="drawer" class="drawer" aria-label="File details" hidden></aside>
+  </div>
+
+  <dialog id="organize" class="sheet" aria-labelledby="organize-title"></dialog>
+  <div id="bulkbar" class="bulkbar" role="toolbar" aria-label="Selected files" hidden></div>
+  <div id="ctxmenu" class="ctxmenu" role="menu" hidden></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <script type="module" src="/app.js?v=6"></script>
+</body>
+</html>

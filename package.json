@@ -1,0 +1,28 @@
+{
+  "name": "2ndbrain",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local search and organizer for your Mac Downloads folder, with an MCP server for Claude Code and Codex.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MonarchLabsLLC/2nd-Brain.git"
+  },
+  "os": [
+    "darwin"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/server.mjs",
+    "index": "node --disable-warning=ExperimentalWarning src/cli.mjs index",
+    "mcp": "node --disable-warning=ExperimentalWarning src/mcp.mjs",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  }
+}
