@@ -2,10 +2,8 @@ import http from 'node:http';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { PORT, HOST, THUMB_DIR, DOWNLOADS_DIR, ensureDirs } from './config.mjs';
+import { PORT, HOST, THUMB_DIR, DOWNLOADS_DIR, SKIP_FILES, ensureDirs } from './config.mjs';
 import { refresh, watchAll, fullStatus } from './indexer.mjs';
 import { searchFiles, getFile, setStar, setTags, stats, deleteRow } from './queries.mjs';
 import { getRoots, addRoot, removeRoot, setRootActive } from './roots.mjs';
@@ -13,8 +11,15 @@ import { createPlan, applyPlan, undoBatch, history } from './organize.mjs';
 import { thumbnail } from './thumbs.mjs';
 import { moveToTrash } from './trash.mjs';
 import { findUnnamed, startNaming, getJob, cancelJob, planFromProposals, cleanName } from './naming.mjs';
+import { LABELS, reveal, openPath, pickFolder } from './platform/index.mjs';
 
-const run = promisify(execFile);
+// The Windows background service has no terminal; it writes its log to a file instead.
+if (process.env.SECONDBRAIN_LOG) {
+  const log = fs.createWriteStream(process.env.SECONDBRAIN_LOG, { flags: 'a' });
+  const write = (...a) => log.write(`${new Date().toISOString()} ${a.map(String).join(' ')}\n`);
+  console.log = write; console.error = write;
+  process.on('uncaughtException', (e) => { write('Crashed:', e?.stack || e); log.end(() => process.exit(1)); });
+}
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const MIME = {
   html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', mjs: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8',
@@ -46,15 +51,11 @@ async function handle(req, res) {
   const p = url.pathname;
   const m = p.match(/^\/api\/files\/(\d+)(?:\/(\w+))?$/);
 
-  if (p === '/api/stats') return send(res, 200, { ...stats(url.searchParams.get('root') || DOWNLOADS_DIR), status: fullStatus(), downloads: DOWNLOADS_DIR });
+  if (p === '/api/stats') return send(res, 200, { ...stats(url.searchParams.get('root') || DOWNLOADS_DIR), status: fullStatus(), downloads: DOWNLOADS_DIR, platform: LABELS });
   if (p === '/api/roots' && req.method === 'GET') return send(res, 200, getRoots());
   if (p === '/api/roots/pick' && req.method === 'POST') {
-    // Show the standard macOS folder picker.
-    try {
-      const { stdout } = await run('osascript', ['-e', 'tell me to activate', '-e',
-        'POSIX path of (choose folder with prompt "Choose a folder for 2ndBrain to search")'], { timeout: 10 * 60 * 1000 });
-      return send(res, 200, { path: stdout.trim() });
-    } catch { return send(res, 200, { path: null }); } // cancelled
+    // Show the system folder picker. null means cancelled.
+    return send(res, 200, { path: await pickFolder() });
   }
   if (p === '/api/roots' && req.method === 'POST') {
     const b = await readJson(req);
@@ -89,7 +90,7 @@ async function handle(req, res) {
       if (f.ext === 'svg') return sendFile(res, f.path, MIME.svg);
       try { const t = await thumbnail(f); return sendFile(res, t, t.endsWith('.png') ? MIME.png : MIME.jpg); } catch { return send(res, 404, { error: 'No preview' }); }
     }
-    if (action === 'raw' && f.dataless) return send(res, 409, { error: 'This file is online-only. Open it in Finder to download it first.' });
+    if (action === 'raw' && f.dataless) return send(res, 409, { error: `This file is online-only. Open it in ${LABELS.fileManager} to download it first.` });
     if (action === 'raw') {
       if (!fs.existsSync(f.path)) return send(res, 404, { error: 'File not found on disk' });
       return sendFile(res, f.path, MIME[f.ext]);
@@ -98,13 +99,13 @@ async function handle(req, res) {
     const body = await readJson(req);
     if (action === 'star') return send(res, 200, setStar(f.id, !!body.starred));
     if (action === 'tags') return send(res, 200, setTags(f.id, body.tags || []));
-    if (action === 'reveal') { await run('open', ['-R', f.path]); return send(res, 200, { ok: true }); }
-    if (action === 'open') { await run('open', [f.path]); return send(res, 200, { ok: true }); }
+    if (action === 'reveal') { await reveal(f.path); return send(res, 200, { ok: true }); }
+    if (action === 'open') { await openPath(f.path); return send(res, 200, { ok: true }); }
     if (action === 'trash') {
-      // macOS Trash, so Finder's "Put Back" still works. Never a permanent delete.
+      // The Trash or Recycle Bin, so the file can be put back. Never a permanent delete.
       if (fs.existsSync(f.path)) {
         try { await moveToTrash(f.path, 30_000); } catch (e) {
-          return send(res, 500, { error: `Could not move the file to the Trash: ${String(e.stderr || e.message).trim()}` });
+          return send(res, 500, { error: `Could not move the file to the ${LABELS.trash}: ${String(e.stderr || e.message).trim()}` });
         }
       }
       deleteRow(f.id);
@@ -150,7 +151,7 @@ async function handle(req, res) {
     const o = req.method === 'GET' ? Object.fromEntries(url.searchParams) : await readJson(req);
     const roots = getRoots();
     const root = roots.find((r) => r.path === o.root);
-    if (!root || !o.folder || o.folder === '__loose' || o.folder.includes('/') || o.folder.startsWith('.')) return send(res, 400, { error: 'Choose a folder from the list.' });
+    if (!root || !o.folder || o.folder === '__loose' || /[\\/]/.test(o.folder) || o.folder.startsWith('.')) return send(res, 400, { error: 'Choose a folder from the list.' });
     const dir = path.join(root.path, o.folder);
     if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return send(res, 404, { error: 'This folder no longer exists. Reindex and try again.' });
     if (p === '/api/folders/info') {
@@ -159,10 +160,10 @@ async function handle(req, res) {
       const agg = getDb().prepare('SELECT count(*) n, sum(size) bytes, sum(starred) starred FROM files WHERE root = ? AND folder = ?').get(root.path, o.folder);
       return send(res, 200, { path: dir, name: o.folder, children: children.length, files: agg.n, bytes: agg.bytes || 0, starred: agg.starred || 0 });
     }
-    if (p === '/api/folders/reveal' && req.method === 'POST') { await run('open', ['-R', dir]); return send(res, 200, { ok: true }); }
+    if (p === '/api/folders/reveal' && req.method === 'POST') { await reveal(dir); return send(res, 200, { ok: true }); }
     if (p === '/api/folders/trash-contents' && req.method === 'POST') {
       if (o.confirm !== o.folder) return send(res, 400, { error: 'Type the folder name exactly to confirm.' });
-      const children = fs.readdirSync(dir).filter((n) => n !== '.DS_Store').map((n) => path.join(dir, n));
+      const children = fs.readdirSync(dir).filter((n) => !SKIP_FILES.has(n.toLowerCase())).map((n) => path.join(dir, n));
       let moved = 0; const failed = [];
       for (let i = 0; i < children.length; i += 50) {
         const chunk = children.slice(i, i + 50);

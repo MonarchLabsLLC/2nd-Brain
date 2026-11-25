@@ -3,8 +3,9 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { getDb, tx } from './db.mjs';
-import { DOWNLOADS_DIR, ORGANIZE_MIN_AGE_MS, PARTIAL_SUFFIXES } from './config.mjs';
+import { DOWNLOADS_DIR, ORGANIZE_MIN_AGE_MS, PARTIAL_SUFFIXES, SKIP_FILES } from './config.mjs';
 import { organizeTarget } from './classify.mjs';
+import { samePath, isWithin, isInsideOrSame, relInfo } from './paths.mjs';
 
 /**
  * Build a move plan for loose files directly in Downloads. Nothing moves here.
@@ -49,10 +50,9 @@ function uniqueDest(dir, name) {
 function updatePath(fileId, newPath, fallbackRoot) {
   // Each file keeps the location (root) it was indexed under.
   const root = getDb().prepare('SELECT root FROM files WHERE id = ?').get(fileId)?.root || fallbackRoot;
-  const rel = path.relative(root, newPath);
-  const parts = rel.split(path.sep);
+  const { rel, folder } = relInfo(newPath, root);
   getDb().prepare('UPDATE files SET path = ?, rel_path = ?, name = ?, folder = ? WHERE id = ?')
-    .run(newPath, rel, path.basename(newPath), parts.length > 1 ? parts[0] : null, fileId);
+    .run(newPath, rel, path.basename(newPath), folder, fileId);
 }
 
 /**
@@ -76,11 +76,19 @@ export async function applyPlan(planId, { exclude = [], overrides = {}, root = D
       const itemRoot = it.root || root;
       const toDirRel = overrides[it.file_id] ?? it.to_dir;
       const toDir = path.resolve(itemRoot, toDirRel);
-      if (toDir !== itemRoot && !toDir.startsWith(itemRoot + path.sep)) throw new Error('Target must be inside the same location');
+      if (!isInsideOrSame(toDir, itemRoot)) throw new Error('Target must be inside the same location');
       if (!fs.existsSync(it.from)) throw new Error('File no longer exists');
       await fsp.mkdir(toDir, { recursive: true });
       const newName = it.to_name || path.basename(it.from);
       if (path.join(toDir, newName) === it.from) continue; // nothing to do
+      // Windows names ignore case: renaming "img_1.png" to "IMG_1.png" is the same file, not a clash.
+      if (samePath(path.join(toDir, newName), it.from)) {
+        const dest = path.join(toDir, newName);
+        await fsp.rename(it.from, dest);
+        tx(() => { logMove.run(batchId, it.file_id, it.from, dest, Date.now()); updatePath(it.file_id, dest, root); });
+        moved.push({ file_id: it.file_id, from: it.from, to: dest });
+        continue;
+      }
       const dest = uniqueDest(toDir, newName);
       await fsp.rename(it.from, dest);
       tx(() => {
@@ -123,12 +131,12 @@ export async function undoBatch(batchId, { root = DOWNLOADS_DIR } = {}) {
   // Remove folders that Organize made and that are now empty (only empty ones).
   const roots = getDb().prepare('SELECT DISTINCT root FROM files').all().map((r) => r.root).concat(root);
   for (let dir of touchedDirs) {
-    const top = roots.find((r) => dir.startsWith(r + path.sep));
-    while (top && dir.startsWith(top + path.sep)) {
+    const top = roots.find((r) => r && isWithin(dir, r));
+    while (top && isWithin(dir, top)) {
       try {
-        const left = (await fsp.readdir(dir)).filter((n) => n !== '.DS_Store');
-        if (left.length) break;
-        await fsp.rm(path.join(dir, '.DS_Store'), { force: true });
+        const names = await fsp.readdir(dir);
+        if (names.some((n) => !SKIP_FILES.has(n.toLowerCase()))) break;
+        for (const n of names) await fsp.rm(path.join(dir, n), { force: true }); // .DS_Store, desktop.ini, Thumbs.db
         await fsp.rmdir(dir);
       } catch { break; }
       dir = path.dirname(dir);

@@ -11,6 +11,8 @@ import { getDb } from './db.mjs';
 import { THUMB_DIR, PARTIAL_SUFFIXES } from './config.mjs';
 import { looksSecret } from './indexer.mjs';
 import { thumbnail } from './thumbs.mjs';
+import { isWithin } from './paths.mjs';
+import { claudeCommand } from './platform/index.mjs';
 
 const run = promisify(execFile);
 
@@ -53,7 +55,7 @@ const PROJECT_MARKERS = ['package.json', '.git', 'node_modules', 'index.html', '
 /** Files inside a code project or website folder keep their names, so nothing breaks. */
 function insideProject(file, root, cache) {
   let dir = path.dirname(file);
-  while (dir.startsWith(root + path.sep)) {
+  while (isWithin(dir, root)) {
     if (!cache.has(dir)) cache.set(dir, PROJECT_MARKERS.some((m) => fs.existsSync(path.join(dir, m))));
     if (cache.get(dir)) return true;
     dir = path.dirname(dir);
@@ -89,9 +91,12 @@ export function findUnnamed({ root, folder, limit = 500 } = {}) {
 }
 
 // ---------- asking Claude ----------
-export function claudeBin() {
-  const candidates = [process.env.SECONDBRAIN_CLAUDE, path.join(os.homedir(), '.local/bin/claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude'].filter(Boolean);
-  return candidates.find((c) => fs.existsSync(c)) || 'claude';
+/** Run `claude -p` with the prompt and flags. On Windows the prompt goes on stdin (command lines are limited there). */
+function runClaude(prompt, flags, opts) {
+  const { file, args, promptOnStdin } = claudeCommand();
+  const p = run(file, [...args, '-p', ...(promptOnStdin ? [] : [prompt]), ...flags], { ...opts, windowsHide: true });
+  if (promptOnStdin) p.child.stdin.end(prompt);
+  return p;
 }
 
 const SCHEMA = JSON.stringify({
@@ -135,8 +140,7 @@ Rules:
 - Return one entry per id.
 
 ${parts.join('\n\n')}`;
-  const { stdout } = await run(claudeBin(), [
-    '-p', prompt,
+  const { stdout } = await runClaude(prompt, [
     '--model', model,
     '--output-format', 'json',
     '--json-schema', SCHEMA,

@@ -45,8 +45,13 @@ function highlight(text) {
   return out;
 }
 
+// Words that differ by system: Finder and Trash on a Mac, File Explorer and Recycle Bin on Windows.
+const MAC_WORDS = { os: 'mac', fileManager: 'Finder', trash: 'Trash', trashLong: 'the macOS Trash', putBack: 'You can put it back from the Trash in Finder.' };
+const W = () => statsCache?.platform || MAC_WORDS;
+const baseName = (p) => String(p || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop();
+
 function rootLabel(root) {
-  return (statsCache?.roots || []).find((r) => r.path === root)?.label || root?.split('/').pop() || 'Downloads';
+  return (statsCache?.roots || []).find((r) => r.path === root)?.label || baseName(root) || 'Downloads';
 }
 function whereLabel(f) {
   return [rootLabel(f.root), ...f.rel_path.split('/').slice(0, -1)].join(' / ');
@@ -157,13 +162,13 @@ async function pickRoot() {
     const { path } = await api('/api/roots/pick', { method: 'POST', body: {} });
     if (!path) { toast('No folder added'); return; }
     await api('/api/roots', { method: 'POST', body: { path } });
-    toast(`Added ${path.replace(/\/$/, '').split('/').pop()}. Indexing now.`);
+    toast(`Added ${baseName(path)}. Indexing now.`);
     wasRunning = true; pollStatus();
   } catch (e) { toast(e.message); } finally { await loadStats(); }
 }
 
 async function removeRoot(path) {
-  const name = path.split('/').pop();
+  const name = baseName(path);
   if (!window.confirm(`Stop searching "${name}"? Your files stay where they are. Only the search index forgets them.`)) return;
   try {
     await api('/api/roots/remove', { method: 'POST', body: { path } });
@@ -275,7 +280,7 @@ function closeDrawer() {
 
 function previewHtml(f) {
   const raw = `/api/files/${f.id}/raw`;
-  if (f.dataless) return '<span class="muted">Online-only file. No preview, so it is not downloaded. Use Open or Show in Finder to get it.</span>';
+  if (f.dataless) return '<span class="muted">Online-only file. No preview, so it is not downloaded. Use Open or Show in ' + esc(W().fileManager) + ' to get it.</span>';
   if (f.category === 'image') {
     const src = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif'].includes(f.ext) ? raw : `/api/files/${f.id}/thumb`;
     return `<img src="${src}" alt="Preview of ${esc(f.name)}">`;
@@ -302,13 +307,13 @@ async function openDrawer(id) {
       <div class="actions">
         <button class="btn btn-quiet star-btn" id="star" aria-pressed="${f.starred}">${f.starred ? 'Starred' : 'Star'}</button>
         <button class="btn btn-quiet" id="copy">Copy path</button>
-        <button class="btn btn-quiet" id="reveal">Show in Finder</button>
+        <button class="btn btn-quiet" id="reveal">Show in ${W().fileManager}</button>
         <button class="btn btn-quiet" id="open">Open</button>
-        <button class="btn btn-danger" id="trash">Move to Trash</button>
+        <button class="btn btn-danger" id="trash">Move to ${W().trash}</button>
       </div>
       <div id="trash-confirm" class="confirm" hidden>
-        <p>Move this file to the Trash? You can put it back from the Trash in Finder.</p>
-        <div class="actions"><button class="btn btn-danger-solid" id="trash-yes">Move to Trash</button><button class="btn btn-quiet" id="trash-no">Cancel</button></div>
+        <p>Move this file to the ${W().trash}? ${W().putBack}</p>
+        <div class="actions"><button class="btn btn-danger-solid" id="trash-yes">Move to ${W().trash}</button><button class="btn btn-quiet" id="trash-no">Cancel</button></div>
       </div>
       <dl class="facts">
         <dt>Folder</dt><dd>${esc(whereLabel(f))}</dd>
@@ -337,8 +342,8 @@ async function openDrawer(id) {
       await api(`/api/files/${id}/trash`, { method: 'POST', body: {} });
       state.items = state.items.filter((x) => x.id !== id); state.total = Math.max(0, state.total - 1);
       closeDrawer(); renderResults(); loadStats();
-      toast('Moved to Trash');
-    } catch (e) { toast(e.message); $('#trash-yes').disabled = false; $('#trash-yes').textContent = 'Move to Trash'; }
+      toast(`Moved to ${W().trash}`);
+    } catch (e) { toast(e.message); $('#trash-yes').disabled = false; $('#trash-yes').textContent = `Move to ${W().trash}`; }
   };
   $('#reveal').onclick = () => api(`/api/files/${id}/reveal`, { method: 'POST', body: {} }).catch((e) => toast(e.message));
   $('#open').onclick = () => api(`/api/files/${id}/open`, { method: 'POST', body: {} }).catch((e) => toast(e.message));
@@ -461,7 +466,7 @@ function wireSheet() {
     try {
       const r = await api('/api/organize/apply', { method: 'POST', body: { plan_id: plan.plan_id, exclude: [...excluded] } });
       $('.sheet-body', dlg).innerHTML = `<div class="result-note">Moved ${r.moved} files into folders. The index is updating.</div>
-        ${r.failed.length ? `<div class="error-note">${r.failed.length} files did not move: ${r.failed.slice(0, 5).map((f) => esc(f.from.split('/').pop() + ' (' + f.error + ')')).join(', ')}</div>` : ''}
+        ${r.failed.length ? `<div class="error-note">${r.failed.length} files did not move: ${r.failed.slice(0, 5).map((f) => esc(baseName(f.from) + ' (' + f.error + ')')).join(', ')}</div>` : ''}
         <button class="btn btn-quiet" data-undo="${r.batch_id}">Undo this run</button>`;
       $('.sheet-foot', dlg).innerHTML = '<span></span><button class="btn btn-ink" id="org-cancel">Done</button>';
       wireSheet(); toast(`Moved ${r.moved} files`);
@@ -555,7 +560,7 @@ function renderBulk() {
   bar.innerHTML = `<span class="bulk-count">${n.toLocaleString()} selected</span>
     <button class="btn btn-quiet" data-bulk="star">Star</button>
     <button class="btn btn-quiet" data-bulk="unstar">Unstar</button>
-    <button class="btn btn-danger" data-bulk="trash">Move to Trash</button>
+    <button class="btn btn-danger" data-bulk="trash">Move to ${W().trash}</button>
     <button class="btn btn-quiet" data-bulk="all">Select all ${state.items.length < state.total ? 'shown' : ''}</button>
     <button class="btn btn-quiet" data-bulk="clear">Clear</button>`;
 }
@@ -568,8 +573,8 @@ $('#bulkbar').addEventListener('click', async (e) => {
   if (act === 'all') { state.items.forEach((f) => state.sel.add(f.id)); return paintSel(); }
   if (act === 'trash') {
     bar.dataset.mode = 'confirm';
-    bar.innerHTML = `<span class="bulk-count">Move ${ids.length.toLocaleString()} ${ids.length === 1 ? 'file' : 'files'} to the Trash? You can put them back from the Trash in Finder.</span>
-      <button class="btn btn-danger-solid" data-bulk="trash-yes">Move to Trash</button><button class="btn btn-quiet" data-bulk="trash-no">Cancel</button>`;
+    bar.innerHTML = `<span class="bulk-count">Move ${ids.length.toLocaleString()} ${ids.length === 1 ? 'file' : 'files'} to the ${W().trash}? ${W().os === 'windows' ? 'You can restore them from the Recycle Bin.' : 'You can put them back from the Trash in Finder.'}</span>
+      <button class="btn btn-danger-solid" data-bulk="trash-yes">Move to ${W().trash}</button><button class="btn btn-quiet" data-bulk="trash-no">Cancel</button>`;
     bar.querySelector('[data-bulk="trash-yes"]').focus();
     return;
   }
@@ -587,7 +592,7 @@ $('#bulkbar').addEventListener('click', async (e) => {
       state.items.forEach((f) => { if (state.sel.has(f.id)) f.starred = action === 'star'; });
     }
     state.sel.clear(); renderResults(); loadStats();
-    toast(action === 'trash' ? `Moved ${r.done} to Trash${r.failed.length ? `, ${r.failed.length} failed` : ''}` : `${action === 'star' ? 'Starred' : 'Unstarred'} ${r.done}`);
+    toast(action === 'trash' ? `Moved ${r.done} to ${W().trash}${r.failed.length ? `, ${r.failed.length} failed` : ''}` : `${action === 'star' ? 'Starred' : 'Unstarred'} ${r.done}`);
   } catch (err) { toast(err.message); b.disabled = false; }
 });
 
@@ -597,7 +602,7 @@ $('#bulkbar').addEventListener('click', async (e) => {
 function openFolderMenu(x, y, root, folder) {
   const m = $('#ctxmenu');
   m.innerHTML = `<button role="menuitem" data-m="name">Optimize names…</button>
-    <button role="menuitem" data-m="reveal">Show in Finder</button>
+    <button role="menuitem" data-m="reveal">Show in ${W().fileManager}</button>
     <hr>
     <button role="menuitem" data-m="trash" class="danger">Delete all contents…</button>`;
   m.hidden = false;
@@ -621,10 +626,10 @@ async function openFolderTrash(root, folder) {
   try { info = await api(`/api/folders/info?root=${encodeURIComponent(root)}&folder=${encodeURIComponent(folder)}`); } catch (e) { return toast(e.message); }
   dlg.innerHTML = `<div class="sheet-inner">
     <div class="sheet-head danger-head"><h2 id="organize-title">Delete all contents of “${esc(folder)}”?</h2>
-      <p>This moves everything inside the folder to the Trash: ${info.children.toLocaleString()} ${info.children === 1 ? 'item' : 'items'}, ${info.files.toLocaleString()} indexed files, ${bytes(info.bytes)}. The empty folder stays.</p></div>
+      <p>This moves everything inside the folder to the ${W().trash}: ${info.children.toLocaleString()} ${info.children === 1 ? 'item' : 'items'}, ${info.files.toLocaleString()} indexed files, ${bytes(info.bytes)}. The empty folder stays.</p></div>
     <div class="sheet-body">
       <div class="warn-box">
-        <p><strong>Check this carefully.</strong> ${info.starred ? `${info.starred} starred ${info.starred === 1 ? 'file is' : 'files are'} in this folder. ` : ''}Files go to the macOS Trash. You can put them back from the Trash until you empty it.</p>
+        <p><strong>Check this carefully.</strong> ${info.starred ? `${info.starred} starred ${info.starred === 1 ? 'file is' : 'files are'} in this folder. ` : ''}Files go to ${W().trashLong}. You can put them back from the ${W().trash} until you empty it.</p>
         <p class="muted small">${esc(info.path)}</p>
       </div>
       <label class="type-confirm"><span>Type <strong>${esc(folder)}</strong> to confirm</span>
@@ -632,20 +637,20 @@ async function openFolderTrash(root, folder) {
       <div id="trash-result"></div>
     </div>
     <div class="sheet-foot"><button class="btn btn-quiet" id="ft-cancel">Cancel</button>
-      <button class="btn btn-danger-solid" id="ft-go" disabled>Move ${info.children.toLocaleString()} items to Trash</button></div></div>`;
+      <button class="btn btn-danger-solid" id="ft-go" disabled>Move ${info.children.toLocaleString()} items to ${W().trash}</button></div></div>`;
   dlg.showModal();
   const input = $('#confirm-name'); const go = $('#ft-go');
   input.focus();
   input.addEventListener('input', () => { go.disabled = input.value !== folder; });
   $('#ft-cancel').onclick = () => dlg.close();
   go.onclick = async () => {
-    go.disabled = true; go.textContent = 'Moving to Trash…';
+    go.disabled = true; go.textContent = `Moving to ${W().trash}…`;
     try {
       const r = await api('/api/folders/trash-contents', { method: 'POST', body: { root, folder, confirm: input.value } });
-      $('#trash-result').innerHTML = `<div class="result-note">Moved ${r.moved} items to the Trash.${r.failed.length ? ` ${r.failed.length} could not move: ${r.failed.slice(0, 5).map(esc).join(', ')}` : ''}</div>`;
+      $('#trash-result').innerHTML = `<div class="result-note">Moved ${r.moved} items to the ${W().trash}.${r.failed.length ? ` ${r.failed.length} could not move: ${r.failed.slice(0, 5).map(esc).join(', ')}` : ''}</div>`;
       $('.sheet-foot', dlg).innerHTML = '<span></span><button class="btn btn-ink" id="ft-done">Done</button>';
       $('#ft-done').onclick = () => dlg.close();
-      toast(`Moved ${r.moved} items to Trash`);
+      toast(`Moved ${r.moved} items to ${W().trash}`);
       setTimeout(async () => { await loadStats(); loadFiles(); }, 1500);
     } catch (e) { $('#trash-result').innerHTML = `<div class="error-note">${esc(e.message)}</div>`; go.disabled = false; go.textContent = 'Try again'; }
   };
@@ -724,7 +729,7 @@ async function runNaming(root, folder, limit) {
       const r = await api('/api/naming/apply', { method: 'POST', body: { job_id: job.id, renames: [...chosen].map(([file_id, base]) => ({ file_id, new_name: base })) } });
       namingJob = null;
       $('.sheet-body', dlg).innerHTML = `<div class="result-note">Renamed ${r.moved} files. The index is updating.</div>
-        ${r.failed.length ? `<div class="error-note">${r.failed.length} files were not renamed: ${r.failed.slice(0, 5).map((f) => esc(f.from.split('/').pop() + ' (' + f.error + ')')).join(', ')}</div>` : ''}
+        ${r.failed.length ? `<div class="error-note">${r.failed.length} files were not renamed: ${r.failed.slice(0, 5).map((f) => esc(baseName(f.from) + ' (' + f.error + ')')).join(', ')}</div>` : ''}
         <button class="btn btn-quiet" data-undo="${r.batch_id}">Undo these renames</button>`;
       $('.sheet-foot', dlg).innerHTML = '<span></span><button class="btn btn-ink" id="org-cancel">Done</button>';
       wireSheet(); toast(`Renamed ${r.moved} files`);

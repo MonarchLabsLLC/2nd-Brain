@@ -12,7 +12,7 @@ for a in "$@"; do [[ "$a" == "--no-app" ]] && BUILD_APP=0; done
 say() { print -P "%B==>%b $1"; }
 warn() { print -P "%F{yellow}!%f $1"; }
 
-[[ "$(uname)" == "Darwin" ]] || { echo "2ndBrain runs on macOS only."; exit 1; }
+[[ "$(uname)" == "Darwin" ]] || { echo "This installer is for macOS. On Windows, run:  powershell -ExecutionPolicy Bypass -File scripts\install.ps1"; exit 1; }
 
 # 1. Node.js 22.13 or later
 if ! command -v node >/dev/null; then

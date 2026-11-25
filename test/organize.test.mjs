@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), '2ndbrain-test-'));
+// realpath: Windows can hand out short 8.3 temp paths (C:\Users\PATAN~1\...), which added folders expand.
+const tmp = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), '2ndbrain-test-')));
 const root = path.join(tmp, 'Downloads');
 process.env.SECONDBRAIN_DATA = path.join(tmp, 'data');
 process.env.SECONDBRAIN_DOWNLOADS = root;
@@ -31,6 +32,7 @@ make('fresh.md', '# just downloaded', new Date());
 make('song.mp3.crdownload', 'partial');
 make('Project/keep.md', '# stays in its folder');
 make('Images/Logos/brand-logo.svg', '<svg/>'); // name clash target
+make('Project/desktop.ini', '[.ShellClassInfo]'); // Windows system file: never indexed
 
 test('indexes files and searches text inside them', async () => {
   const r = await refresh(root);
@@ -40,6 +42,8 @@ test('indexes files and searches text inside them', async () => {
   assert.equal(hits.items[0].name, 'notes.md');
   assert.ok(hits.items[0].snippet.includes('«zebra»'));
   assert.equal(searchFiles({ folder: 'Project' }).total, 1);
+  // Paths inside a location are stored with "/" on every system.
+  assert.equal(getFileByPath(path.join(root, 'Project', 'keep.md')).rel_path, 'Project/keep.md');
 });
 
 test('secret-looking files are indexed by name only', async () => {
@@ -101,7 +105,13 @@ test('extra folders are indexed, searchable by location, and removable', async (
   assert.throws(() => validateRoot(path.join(extra, 'Kit')), /already included/);
   assert.throws(() => validateRoot(tmp), /contains/);
   assert.throws(() => validateRoot('/'), /too large/);
-  assert.throws(() => validateRoot('/System/Library'), /System folders/);
+  if (process.platform === 'win32') {
+    assert.throws(() => validateRoot(path.join(process.env.SystemRoot, 'System32')), /System folders/);
+    // Windows paths ignore case: the same folder typed differently is still the same folder.
+    assert.throws(() => validateRoot(path.join(extra, 'Kit').toUpperCase()), /already included/);
+  } else {
+    assert.throws(() => validateRoot('/System/Library'), /System folders/);
+  }
   assert.throws(() => removeRoot(root), /cannot be removed/);
   // A location that is switched off is left out of search, unless asked for by name.
   const { setRootActive } = await import('../src/roots.mjs');
@@ -117,7 +127,10 @@ test('extra folders are indexed, searchable by location, and removable', async (
   assert.ok(fs.existsSync(path.join(extra, 'Kit', 'acme-logo.svg')), 'files stay on disk');
 });
 
-test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+test.after(async () => {
+  (await import('../src/db.mjs')).closeDb(); // Windows will not delete an open database file
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
 
 test('settings.json can rename Organize folders, but not escape Downloads', async () => {
   const { organizeTarget, DEFAULT_FOLDERS } = await import('../src/classify.mjs');
