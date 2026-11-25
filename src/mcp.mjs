@@ -11,6 +11,7 @@ import { findUnnamed, planFromProposals, cleanName } from './naming.mjs';
 import { thumbnail } from './thumbs.mjs';
 import { DOWNLOADS_DIR, PORT } from './config.mjs';
 import { getRoots, addRoot, removeRoot, setRootActive } from './roots.mjs';
+import { baseName } from './paths.mjs';
 
 const TYPES = ['image', 'markdown', 'text', 'pdf', 'office', 'data', 'code', 'video', 'audio', 'archive', 'installer', 'font', 'other'];
 const IMAGE_KINDS = ['logo', 'screenshot', 'photo', 'graphic'];
@@ -46,7 +47,7 @@ The visual app runs at http://localhost:${PORT} when started.`,
 
 server.registerTool('search_downloads', {
   title: 'Search Downloads',
-  description: 'Find files in ~/Downloads (and its subfolders). Free-text query matches file names, folder names, the URL the file was downloaded from, tags, and text inside .md/.txt/.pdf/.docx/code files. Combine with filters. Returns absolute paths.',
+  description: 'Find files in the Downloads folder (and its subfolders) and any other added locations. Free-text query matches file names, folder names, the URL the file was downloaded from, tags, and text inside .md/.txt/.pdf/.docx/code files. Combine with filters. Returns absolute paths.',
   inputSchema: {
     query: z.string().optional().describe('Words to match, e.g. "acme logo" or "launch brief". Leave empty to list by filters only.'),
     location: z.string().optional().describe('Limit to one indexed location: "Downloads", a folder name like "Desktop", or an absolute path. Default: all locations.'),
@@ -242,7 +243,7 @@ server.registerTool('rename_files', {
   if (!proposals.length) return fail(`Nothing to rename. ${problems.join('; ')}`);
   const r = await applyPlan(planFromProposals(proposals));
   refresh().catch(() => {});
-  return json({ batch_id: r.batch_id, renamed: r.moves.map((m) => ({ from: m.from.split('/').pop(), to: m.to.split('/').pop() })), failed: r.failed, problems });
+  return json({ batch_id: r.batch_id, renamed: r.moves.map((m) => ({ from: baseName(m.from), to: baseName(m.to) })), failed: r.failed, problems });
 });
 
 server.registerTool('reindex_downloads', {

@@ -1,10 +1,10 @@
 # 2nd Brain
 
-Find anything you ever downloaded on your Mac, in seconds.
+Find anything you ever downloaded, in seconds. Works on Mac and Windows.
 
 2nd Brain indexes your `~/Downloads` folder (and any other folders you add), sorts what's in it, and lets you search names, folders, download links and the text inside your files at the same time. It can tidy Downloads into folders, name the files called `IMG_4471.png` or `Untitled 147.md`, and it plugs into Claude Code and Codex, so you can just ask your agent: *"find the logo I downloaded last week."*
 
-Everything runs on your Mac. Nothing is uploaded. Free and open source under the MIT license.
+Everything runs on your computer. Nothing is uploaded. Free and open source under the MIT license.
 
 ![2nd Brain](docs/screenshot.png)
 
@@ -17,28 +17,40 @@ Everything runs on your Mac. Nothing is uploaded. Free and open source under the
 - **Names unnamed files.** Claude Code looks at files with junk names (`IMG_1234`, `Screenshot 2026-…`, `Untitled 147`, `ChatGPT Image …`, long IDs) and suggests real names. You edit or untick them, then rename. Every rename can be undone.
 - **More folders.** Add Desktop, Dropbox or a project folder with **Add folder…**. Each location has an on/off switch for search. Organize only ever changes Downloads.
 - **Star and select.** Hover a file to star it. Drag a box (or ⌘-click, Shift-click, ⌘A) to select many files, then Star, Unstar or Move to Trash.
-- **Right-click a folder** in the left column: Optimize names, Show in Finder, or Delete all contents (strong warning, you type the folder name, everything goes to the Trash).
+- **Right-click a folder** in the left column: Optimize names, Show in Finder (File Explorer on Windows), or Delete all contents (strong warning, you type the folder name, everything goes to the Trash or Recycle Bin).
 - **Watches** your folders and updates the index a few seconds after files change. The status at the bottom left shows progress and time left.
 - **Works with your AI agent** through an MCP server: search, tag, organize, rename and undo from Claude Code or Codex.
 
 ### Safety
 
-- Nothing is ever deleted permanently. Files go to the macOS Trash, so Finder's **Put Back** works.
+- Nothing is ever deleted permanently. Files go to the macOS Trash, so Finder's **Put Back** works. On Windows they go to the Recycle Bin, so **Restore** works. 2nd Brain will not delete files on USB drives or network folders, because those have no Recycle Bin.
 - Organize never overwrites a file. If a name is taken, the file gets ` (2)`. It leaves alone files in subfolders, partial downloads, and anything changed in the last 24 hours.
 - Renaming skips files inside code projects and websites, so nothing breaks.
 - Files with secret-looking names (`.env`, `*.pem`, `api-keys.md` and similar) are indexed by name only. Their text is never read or sent to an AI.
-- Online-only cloud files (Dropbox, iCloud "Optimize storage") are indexed by name, type and size only, so your cloud provider does not download them.
-- AI naming sends only small previews and the first part of a document's text to Claude, through your own Claude Code login. Nothing else leaves your Mac.
+- Online-only cloud files (Dropbox, iCloud "Optimize storage", OneDrive "Files On-Demand") are indexed by name, type and size only, so your cloud provider does not download them.
+- AI naming sends only small previews and the first part of a document's text to Claude, through your own Claude Code login. Nothing else leaves your computer.
 
 ## Requirements
 
-- A Mac with macOS 13 Ventura or later (Apple silicon or Intel)
+**Mac**
+
+- macOS 13 Ventura or later (Apple silicon or Intel)
 - [Node.js](https://nodejs.org) 22.13 or later: `brew install node`
 - Optional: [Claude Code](https://claude.com/claude-code) for AI file naming and agent tools
 - Optional: `brew install poppler` to search the text inside PDFs
 - Optional, for the Dock app: Xcode Command Line Tools (`xcode-select --install`) and `brew install librsvg`
 
+**Windows**
+
+- Windows 10 or 11
+- [Node.js](https://nodejs.org) 22.13 or later: `winget install OpenJS.NodeJS.LTS`
+- Optional: [Claude Code](https://claude.com/claude-code) for AI file naming and agent tools
+- Optional: `winget install oschwartz10612.Poppler` to search the text inside PDFs
+- The Start menu app uses Microsoft Edge, which comes with Windows
+
 ## Install
+
+### Mac
 
 ```bash
 git clone https://github.com/MonarchLabsLLC/2nd-Brain.git ~/2nd-Brain
@@ -59,13 +71,35 @@ The installer:
 
 You can run it again at any time. It updates what is already installed.
 
+### Windows
+
+In PowerShell:
+
+```powershell
+git clone https://github.com/MonarchLabsLLC/2nd-Brain.git $HOME\2nd-Brain
+cd $HOME\2nd-Brain
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+```
+
+Then open <http://localhost:4321>, or open **2nd Brain** from the Start menu and pin it to the taskbar.
+
+The installer does the same steps as on a Mac. It needs no administrator rights:
+
+1. checks for Node.js 22.13 or later,
+2. installs the dependencies,
+3. indexes your Downloads folder (wherever Windows keeps it, including OneDrive),
+4. starts 2nd Brain at login (a scheduled task named `2ndBrain` that runs `localhost:4321` in a hidden window),
+5. connects the MCP server to Claude Code and Codex, if you have them,
+6. adds **2nd Brain** to the Start menu (`-NoApp` skips this). It opens in its own Edge window.
+
 ### Install with your AI agent
 
 Paste this into Claude Code, Codex or another coding agent:
 
 ```text
 Install 2nd Brain for me from https://github.com/MonarchLabsLLC/2nd-Brain
-Clone it to ~/2nd-Brain, read the README, and run scripts/install.sh.
+Clone it to ~/2nd-Brain, read the README, and run the installer for my system
+(scripts/install.sh on a Mac, scripts\install.ps1 on Windows).
 If Node.js 22.13+ is missing, tell me the command to install it and wait.
 When it finishes, confirm http://localhost:4321 responds and that the
 2ndbrain MCP server is registered, then tell me to open a new session.
@@ -76,7 +110,8 @@ When it finishes, confirm http://localhost:4321 responds and that the
 ```bash
 cd ~/2nd-Brain
 git pull
-scripts/install.sh
+scripts/install.sh                                            # Mac
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1  # Windows
 ```
 
 ### Uninstall
@@ -85,6 +120,13 @@ scripts/install.sh
 cd ~/2nd-Brain
 scripts/uninstall.sh          # keeps your index and settings
 scripts/uninstall.sh --data   # also deletes the index, thumbnails and settings
+```
+
+On Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\uninstall.ps1        # keeps your index and settings
+powershell -ExecutionPolicy Bypass -File scripts\uninstall.ps1 -Data  # also deletes the index, thumbnails and settings
 ```
 
 Your own files are never touched. Delete the `~/2nd-Brain` folder afterwards.
@@ -123,6 +165,12 @@ claude mcp add --scope user 2ndbrain -- "$(command -v node)" --disable-warning=E
 codex mcp add 2ndbrain -- "$(command -v node)" --disable-warning=ExperimentalWarning "$(pwd)/src/mcp.mjs"
 ```
 
+On Windows (PowerShell):
+
+```powershell
+claude mcp add --scope user 2ndbrain '--' (Get-Command node).Source --disable-warning=ExperimentalWarning "$PWD\src\mcp.mjs"
+```
+
 For Cursor or another MCP client, use the same command: `node --disable-warning=ExperimentalWarning /path/to/2nd-Brain/src/mcp.mjs` over stdio.
 
 ## Organize folders
@@ -144,7 +192,7 @@ For Cursor or another MCP client, use the same command: `node --disable-warning=
 | DMG, PKG | `Installers` |
 | Fonts | `Fonts` |
 
-To use your own folder names, create `~/Library/Application Support/2ndBrain/settings.json`:
+To use your own folder names, create `settings.json` in the data folder (`~/Library/Application Support/2ndBrain` on a Mac, `%LOCALAPPDATA%\2ndBrain` on Windows):
 
 ```json
 {
@@ -161,20 +209,20 @@ Keys: `logo`, `screenshot`, `photo`, `graphic`, `markdown`, `text`, `pdf`, `offi
 
 | Environment variable | What it does | Default |
 | --- | --- | --- |
-| `SECONDBRAIN_DOWNLOADS` | Main folder to index and organize | `~/Downloads` |
-| `SECONDBRAIN_DATA` | Where the index, thumbnails and settings live | `~/Library/Application Support/2ndBrain` |
+| `SECONDBRAIN_DOWNLOADS` | Main folder to index and organize | your Downloads folder |
+| `SECONDBRAIN_DATA` | Where the index, thumbnails and settings live | see below |
 | `SECONDBRAIN_PORT` | Web app port | `4321` |
 | `SECONDBRAIN_NAMING_MODEL` | Claude model for AI naming | `sonnet` |
 | `SECONDBRAIN_CLAUDE` | Path to the `claude` CLI | found automatically |
 
 ## Where things live
 
-| What | Where |
-| --- | --- |
-| Index database | `~/Library/Application Support/2ndBrain/index.sqlite` |
-| Thumbnails | `~/Library/Application Support/2ndBrain/thumbs/` |
-| Settings | `~/Library/Application Support/2ndBrain/settings.json` |
-| Background service log | `~/Library/Logs/2ndBrain.log` |
+| What | Mac | Windows |
+| --- | --- | --- |
+| Index database | `~/Library/Application Support/2ndBrain/index.sqlite` | `%LOCALAPPDATA%\2ndBrain\index.sqlite` |
+| Thumbnails | `~/Library/Application Support/2ndBrain/thumbs/` | `%LOCALAPPDATA%\2ndBrain\thumbs\` |
+| Settings | `~/Library/Application Support/2ndBrain/settings.json` | `%LOCALAPPDATA%\2ndBrain\settings.json` |
+| Background service log | `~/Library/Logs/2ndBrain.log` | `%LOCALAPPDATA%\2ndBrain\2ndBrain.log` |
 
 ## Run it without installing
 
@@ -189,7 +237,12 @@ npm test                            # tests use a temporary folder, never your D
 
 ## How it works
 
-Plain Node.js with no build step: `node:sqlite` with full-text search for the index, a small `node:http` server and vanilla JavaScript for the web app, the official MCP SDK for agent tools, and built-in macOS tools (`sips`, `mdls`, `qlmanage`, `textutil`, `trash`) for image sizes, download links, previews and document text. The Dock app is a small Swift window around the local web app.
+Plain Node.js with no build step: `node:sqlite` with full-text search for the index, a small `node:http` server and vanilla JavaScript for the web app, and the official MCP SDK for agent tools.
+
+Everything that differs between systems sits in `src/platform/`:
+
+- **Mac** (`darwin.mjs`): built-in macOS tools (`sips`, `mdls`, `qlmanage`, `textutil`, `trash`) for image sizes, download links, previews and document text. The Dock app is a small Swift window around the local web app.
+- **Windows** (`win32.mjs`): image sizes and document text (`.docx`, `.odt`, `.rtf`, `.html`) are read in JavaScript, download links come from the `Zone.Identifier` mark browsers add to downloads, and one long-running PowerShell helper (`win-helper.ps1`) makes the same previews File Explorer shows, reads cloud-file attributes and sends files to the Recycle Bin.
 
 ## License
 

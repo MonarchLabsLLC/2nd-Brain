@@ -92,6 +92,11 @@ export function getDb(dbPath = DB_PATH) {
   return db;
 }
 
+/** Close the database. Windows cannot delete a database file that is still open. */
+export function closeDb() {
+  if (db) { db.close(); db = undefined; }
+}
+
 export function getMeta(key) {
   return getDb().prepare('SELECT value FROM meta WHERE key = ?').get(key)?.value ?? null;
 }

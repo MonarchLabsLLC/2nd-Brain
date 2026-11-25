@@ -1,13 +1,9 @@
 // Thumbnails, shared by the web app and the naming engine.
 import fs from 'node:fs';
-import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { THUMB_DIR, ensureDirs } from './config.mjs';
-import { SIPS_EXT } from './classify.mjs';
+import { makeThumbnail } from './platform/index.mjs';
 
-const run = promisify(execFile);
 ensureDirs();
 
 let active = 0; const waiting = [];
@@ -24,22 +20,9 @@ export async function thumbnail(f) {
   const out = path.join(THUMB_DIR, `${f.id}-${f.mtime}.${alpha ? 'png' : 'jpg'}`);
   if (fs.existsSync(out)) return out;
   if (inflight.has(out)) return inflight.get(out);
-  const p = limit(async () => {
-    if (f.category === 'image' && SIPS_EXT.has(f.ext)) {
-      await run('sips', ['-Z', '480', '-s', 'format', alpha ? 'png' : 'jpeg', f.path, '--out', out], { timeout: 30_000 });
-    } else {
-      // Quick Look renders PDFs, Office files, video frames and more.
-      const tmp = await fsp.mkdtemp(path.join(THUMB_DIR, 'ql-'));
-      try {
-        await run('qlmanage', ['-t', '-s', '480', '-o', tmp, f.path], { timeout: 30_000 });
-        const made = (await fsp.readdir(tmp)).find((n) => n.endsWith('.png'));
-        if (!made) throw new Error('no preview');
-        await fsp.rename(path.join(tmp, made), out.replace(/\.jpg$/, '.png'));
-        return out.replace(/\.jpg$/, '.png');
-      } finally { await fsp.rm(tmp, { recursive: true, force: true }); }
-    }
-    return out;
-  }).finally(() => inflight.delete(out));
+  const png = out.replace(/\.jpg$/, '.png');
+  if (fs.existsSync(png)) return png; // a preview that came out as PNG last time
+  const p = limit(() => makeThumbnail(f, out, { alpha, size: 480 })).finally(() => inflight.delete(out));
   inflight.set(out, p);
   return p;
 }

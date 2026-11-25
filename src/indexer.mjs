@@ -6,14 +6,16 @@ import { promisify } from 'node:util';
 import { getDb, tx, setMeta, getMeta } from './db.mjs';
 import { getRoots } from './roots.mjs';
 import {
-  DOWNLOADS_DIR, SKIP_DIRS, BUNDLE_SUFFIXES, MAX_DEPTH, MAX_TEXT_BYTES,
+  DOWNLOADS_DIR, SKIP_DIRS, SKIP_FILES, BUNDLE_SUFFIXES, MAX_DEPTH, MAX_TEXT_BYTES,
 } from './config.mjs';
 import {
   extOf, categoryOf, imageSubcategory, PLAIN_TEXT_EXT, TEXTUTIL_EXT, SIPS_EXT,
 } from './classify.mjs';
+import { relInfo } from './paths.mjs';
+import { imageInfo, onlineOnlySet, downloadSources, extractRichText } from './platform/index.mjs';
 
 const run = promisify(execFile);
-const EXEC_OPTS = { maxBuffer: 64 * 1024 * 1024, timeout: 60_000 };
+const EXEC_OPTS = { maxBuffer: 64 * 1024 * 1024, timeout: 60_000, windowsHide: true };
 
 export const status = { running: false, phase: 'idle', done: 0, total: 0, percent: null, etaSeconds: null, startedAt: null, lastScanAt: null, lastDurationMs: null, lastError: null, files: 0, location: null };
 
@@ -28,7 +30,7 @@ async function walk(root) {
       return; // unreadable folder: skip it
     }
     for (const e of entries) {
-      if (e.name.startsWith('.')) continue;
+      if (e.name.startsWith('.') || SKIP_FILES.has(e.name.toLowerCase())) continue;
       const full = path.join(dir, e.name);
       if (e.isSymbolicLink()) continue;
       if (e.isDirectory()) {
@@ -47,11 +49,6 @@ async function walk(root) {
   return out;
 }
 
-function relInfo(full, root) {
-  const rel = path.relative(root, full);
-  const parts = rel.split(path.sep);
-  return { rel, folder: parts.length > 1 ? parts[0] : null };
-}
 
 /**
  * Fast pass: stat every item, insert new rows, flag changed rows for enrichment,
@@ -106,66 +103,6 @@ export async function scanFast(root = DOWNLOADS_DIR) {
   return { added, changed, removed, total: stats.filter(Boolean).length };
 }
 
-// ---------- enrichment helpers ----------
-
-async function sipsInfo(paths) {
-  const res = new Map();
-  if (!paths.length) return res;
-  try {
-    const { stdout } = await run('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', '-g', 'hasAlpha', ...paths], EXEC_OPTS);
-    let cur = null;
-    for (const line of stdout.split('\n')) {
-      if (!line.startsWith(' ') && line.trim()) {
-        cur = { width: null, height: null, hasAlpha: null };
-        res.set(line.trim(), cur);
-      } else if (cur) {
-        const m = line.match(/^\s+(\w+):\s*(.+)$/);
-        if (!m) continue;
-        if (m[1] === 'pixelWidth') cur.width = Number(m[2]) || null;
-        if (m[1] === 'pixelHeight') cur.height = Number(m[2]) || null;
-        if (m[1] === 'hasAlpha') cur.hasAlpha = m[2].trim() === 'yes' ? 1 : 0;
-      }
-    }
-  } catch (e) {
-    // One bad file can fail the whole batch; retry one by one.
-    if (paths.length > 1) {
-      for (const p of paths) for (const [k, v] of await sipsInfo([p])) res.set(k, v);
-    }
-  }
-  return res;
-}
-
-/** Online-only cloud files carry the SF_DATALESS flag (0x40000000). Reading them makes the provider download them. */
-const SF_DATALESS = 0x40000000;
-async function datalessSet(paths) {
-  const out = new Set();
-  if (!paths.length) return out;
-  try {
-    const { stdout } = await run('stat', ['-f', '%Xf', ...paths], EXEC_OPTS);
-    stdout.trim().split('\n').forEach((hex, i) => { if (parseInt(hex, 16) & SF_DATALESS) out.add(paths[i]); });
-  } catch {
-    // a vanished file fails the batch; check one by one
-    if (paths.length > 1) for (const p of paths) for (const x of await datalessSet([p])) out.add(x);
-  }
-  return out;
-}
-
-/** macOS records the download URL in Spotlight metadata. */
-async function whereFroms(paths) {
-  const res = new Map();
-  if (!paths.length) return res;
-  try {
-    const { stdout } = await run('mdls', ['-raw', '-name', 'kMDItemWhereFroms', ...paths], EXEC_OPTS);
-    const values = stdout.split('\0');
-    paths.forEach((p, i) => {
-      const v = values[i] || '';
-      const urls = [...v.matchAll(/"([^"]+)"/g)].map((m) => m[1]).filter((u) => /^https?:/i.test(u));
-      if (urls.length) res.set(p, urls.join(' '));
-    });
-  } catch { /* metadata is optional */ }
-  return res;
-}
-
 // Never store the text of files that look like secrets.
 const SECRET_NAME_RE = /(^|[._\-\s])(env|secrets?|credentials?|passwords?|tokens?|api[-_ ]?keys?|private[-_ ]?key|id_rsa|id_ed25519)([._\-\s]|$)|\.(pem|key|p12|pfx|keystore)$/i;
 export const looksSecret = (name) => SECRET_NAME_RE.test(name);
@@ -188,8 +125,7 @@ async function readText(full, ext, size) {
       return stdout.slice(0, MAX_TEXT_BYTES);
     }
     if (TEXTUTIL_EXT.has(ext) && size < 50 * 1024 * 1024) {
-      const { stdout } = await run('textutil', ['-convert', 'txt', '-stdout', full], { ...EXEC_OPTS, timeout: 15_000 });
-      return stdout.slice(0, MAX_TEXT_BYTES);
+      return (await extractRichText(full, ext)).slice(0, MAX_TEXT_BYTES);
     }
   } catch { /* unreadable: index by name only */ }
   return null;
@@ -212,10 +148,10 @@ export async function enrich({ onProgress } = {}) {
   const BATCH = 150;
   for (let b = 0; b < rows.length; b += BATCH) {
     const all = rows.slice(b, b + BATCH);
-    const offline = await datalessSet(all.filter((r) => !r.is_bundle).map((r) => r.path));
+    const offline = await onlineOnlySet(all.filter((r) => !r.is_bundle).map((r) => r.path));
     const batch = all.filter((r) => !offline.has(r.path));
     const imgPaths = batch.filter((r) => r.category === 'image' && SIPS_EXT.has(r.ext)).map((r) => r.path);
-    const [dims, froms] = await Promise.all([sipsInfo(imgPaths), whereFroms(batch.map((r) => r.path))]);
+    const [dims, froms] = await Promise.all([imageInfo(imgPaths), downloadSources(batch.map((r) => r.path))]);
     const texts = new Map();
     await pool(batch.filter((r) => !r.is_bundle), 6, async (r) => {
       const t = await readText(r.path, r.ext, r.size);
