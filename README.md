@@ -44,6 +44,7 @@ Everything runs on your computer. Nothing is uploaded. Free and open source unde
 
 - Windows 10 or 11
 - [Node.js](https://nodejs.org) 22.13 or later: `winget install OpenJS.NodeJS.LTS`
+- Git: `winget install Git.Git`. No Git? [Download the ZIP](https://github.com/MonarchLabsLLC/2nd-Brain/archive/refs/heads/main.zip), unzip it to `%USERPROFILE%\2nd-Brain`, and skip the `git clone` line below.
 - Optional: [Claude Code](https://claude.com/claude-code) for AI file naming and agent tools
 - Optional: `winget install oschwartz10612.Poppler` to search the text inside PDFs
 - The Start menu app uses Microsoft Edge, which comes with Windows
