@@ -60,6 +60,7 @@ server.registerTool('search_downloads', {
     modified_within_days: z.number().int().positive().optional(),
     sort: z.enum(['relevance', 'newest', 'oldest', 'name', 'largest']).optional(),
     limit: z.number().int().min(1).max(100).optional().describe('Default 20'),
+    include_subfolders: z.boolean().optional().describe('Default true. false = only files directly in the location, or directly in the chosen folder, not in folders below it.'),
   },
   annotations: { readOnlyHint: true },
 }, async (a) => {
@@ -74,9 +75,12 @@ server.registerTool('search_downloads', {
   const r = searchFiles({
     root, q: a.query, category: a.type, subcategory: a.image_kind, folder: a.folder, ext: a.extension, tag: a.tag,
     starred: a.starred, since: a.modified_within_days ? Date.now() - a.modified_within_days * 86400000 : undefined,
-    sort: a.sort, limit: a.limit || 20,
+    sort: a.sort, limit: a.limit || 20, subfolders: a.include_subfolders,
   });
-  return json({ total_matches: r.total, showing: r.items.length, files: r.items.map(brief) });
+  return json({
+    total_matches: r.total, showing: r.items.length, files: r.items.map(brief),
+    ...(r.hidden ? { more_in_subfolders: r.hidden } : {}),
+  });
 });
 
 server.registerTool('get_download_details', {
