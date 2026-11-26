@@ -51,7 +51,7 @@ async function handle(req, res) {
   const p = url.pathname;
   const m = p.match(/^\/api\/files\/(\d+)(?:\/(\w+))?$/);
 
-  if (p === '/api/stats') return send(res, 200, { ...stats(url.searchParams.get('root') || DOWNLOADS_DIR), status: fullStatus(), downloads: DOWNLOADS_DIR, platform: LABELS });
+  if (p === '/api/stats') return send(res, 200, { ...stats(url.searchParams.get('root') || DOWNLOADS_DIR, { subfolders: url.searchParams.get('subfolders') }), status: fullStatus(), downloads: DOWNLOADS_DIR, platform: LABELS });
   if (p === '/api/roots' && req.method === 'GET') return send(res, 200, getRoots());
   if (p === '/api/roots/pick' && req.method === 'POST') {
     // Show the system folder picker. null means cancelled.

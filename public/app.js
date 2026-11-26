@@ -4,8 +4,15 @@ const PAGE = 80;
 
 const state = {
   q: '', root: '', category: '', subcategory: '', folder: '', starred: false, since: 0,
-  sort: '', tag: '', view: '', sel: new Set(), offset: 0, items: [], total: 0, selected: null, folderFilter: '',
+  sort: '', tag: '', view: '', sel: new Set(), offset: 0, items: [], total: 0, hidden: 0, selected: null, folderFilter: '',
+  subfolders: true, // "Include subfolders": off shows only the top level of each location and folder
 };
+// The switch is remembered in this browser. Storage can be blocked, so it falls back to on.
+try { state.subfolders = localStorage.getItem('2ndbrain.subfolders') !== '0'; } catch { /* keep the default */ }
+function setSubfolders(on) {
+  state.subfolders = on;
+  try { localStorage.setItem('2ndbrain.subfolders', on ? '1' : '0'); } catch { /* not remembered */ }
+}
 
 // ---------- helpers ----------
 async function api(path, opts = {}) {
@@ -66,8 +73,10 @@ async function copyText(t) {
 // ---------- rail ----------
 let statsCache = null;
 async function loadStats() {
-  const fr = state.root || '';
-  statsCache = await api(`/api/stats${fr ? `?root=${encodeURIComponent(fr)}` : ''}`);
+  const p = new URLSearchParams();
+  if (state.root) p.set('root', state.root);
+  if (!state.subfolders) p.set('subfolders', '0');
+  statsCache = await api(`/api/stats?${p}`);
   $('#root-path').textContent = statsCache.downloads.replace(/^\/Users\/[^/]+/, '~');
   renderRail();
   renderStatus(statsCache.status);
@@ -87,6 +96,10 @@ function renderRail() {
     ${navBtn({ label: 'Starred', n: s.starred, active: state.starred, attrs: 'data-nav="starred"' })}
     ${navBtn({ label: 'Last 7 days', active: !!state.since, attrs: `data-nav="recent" data-since="${weekAgo}"` })}
     ${navBtn({ label: 'Loose in Downloads', n: s.loose, active: state.folder === '__loose', attrs: `data-folder="__loose" data-root="${esc(dl)}"` })}
+    <label class="subs-toggle" title="${state.subfolders ? 'On: counts and results include subfolders.' : 'Off: only files at the top level of each location and folder, like ' + esc(W().fileManager) + '.'}">
+      <span class="switch"><input type="checkbox" id="subfolders-toggle" ${state.subfolders ? 'checked' : ''}><span></span></span>
+      <span>Include subfolders</span>
+    </label>
   </div>
   <div class="group"><h2>Locations</h2>
     ${s.roots.map((r) => `<div class="loc ${r.active ? '' : 'off'}">
@@ -98,7 +111,7 @@ function renderRail() {
   for (const c of s.categories) {
     html += navBtn({ label: c.label, n: c.n, active: state.category === c.category && !state.subcategory, attrs: `data-cat="${c.category}"` });
     if (c.category === 'image') {
-      for (const sub of [...s.imageSubs].sort((a, b) => b.n - a.n)) {
+      for (const sub of [...s.imageSubs].sort((a, b) => b.n_all - a.n_all)) {
         html += navBtn({ label: sub.label, n: sub.n, active: state.subcategory === sub.subcategory, attrs: `data-cat="image" data-sub="${sub.subcategory}"`, cls: 'sub' });
       }
     }
@@ -131,6 +144,11 @@ $('#rail-nav').addEventListener('contextmenu', (e) => {
 });
 
 $('#rail-nav').addEventListener('change', async (e) => {
+  if (e.target.id === 'subfolders-toggle') {
+    setSubfolders(e.target.checked);
+    await loadStats(); loadFiles();
+    return;
+  }
   const t = e.target.closest('[data-toggle-root]'); if (!t) return;
   try {
     await api('/api/roots/active', { method: 'POST', body: { path: t.dataset.toggleRoot, active: t.checked } });
@@ -140,7 +158,7 @@ $('#rail-nav').addEventListener('change', async (e) => {
 });
 
 $('#rail-nav').addEventListener('click', async (e) => {
-  if (e.target.closest('.switch')) return;
+  if (e.target.closest('.switch, .subs-toggle')) return;
   const rm = e.target.closest('[data-remove-root]');
   if (rm) return removeRoot(rm.dataset.removeRoot);
   if (e.target.closest('#add-root')) return pickRoot();
@@ -193,10 +211,12 @@ async function loadFiles({ append = false } = {}) {
   for (const k of ['root', 'category', 'subcategory', 'folder', 'sort', 'tag']) if (state[k]) p.set(k, state[k]);
   if (state.starred) p.set('starred', '1');
   if (state.since) p.set('since', state.since);
+  if (!state.subfolders) p.set('subfolders', '0');
   p.set('limit', PAGE); p.set('offset', state.offset);
   const data = await api(`/api/files?${p}`);
   if (id !== reqId) return;
   state.total = data.total;
+  state.hidden = data.hidden || 0;
   state.items = append ? [...state.items, ...data.items] : data.items;
   if (!append) state.sel.clear();
   renderResults();
@@ -205,10 +225,19 @@ async function loadFiles({ append = false } = {}) {
 function renderResults() {
   const view = currentView();
   document.querySelectorAll('.seg button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
-  $('#result-count').textContent = `${state.total.toLocaleString()} ${state.total === 1 ? 'file' : 'files'}`;
+  const topOnly = !state.subfolders && state.folder !== '__loose';
+  const more = state.hidden ? ` · <button class="hidden-more" data-subfolders-on>${state.hidden.toLocaleString()} more in subfolders</button>` : '';
+  $('#result-count').innerHTML = `${state.total.toLocaleString()} ${state.total === 1 ? 'file' : 'files'}${topOnly ? ', top level only' : ''}${more}`;
   const el = $('#results');
   if (!state.items.length) {
     const indexing = statsCache?.status?.running;
+    if (!indexing && state.hidden) {
+      el.innerHTML = `<div class="empty"><h3>Nothing at the top level</h3>
+        <p>${state.hidden.toLocaleString()} matching ${state.hidden === 1 ? 'file is' : 'files are'} in subfolders.</p>
+        <button class="btn btn-marker" data-subfolders-on style="margin-top:12px">Include subfolders</button></div>`;
+      $('#more').hidden = true;
+      return;
+    }
     el.innerHTML = `<div class="empty"><h3>${indexing ? 'Indexing your Downloads' : 'No files match'}</h3>
       <p>${indexing ? 'Results appear as the index fills. This takes about a minute the first time.' : 'Try fewer words, or choose Everything in the left column.'}</p></div>`;
     $('#more').hidden = true;
@@ -486,6 +515,13 @@ function wireSheet() {
     } catch (e) { b.outerHTML = `<span class="error-note">${esc(e.message)}</span>`; }
   });
 }
+
+// "N more in subfolders" and the empty-state button turn the switch back on.
+document.addEventListener('click', async (e) => {
+  if (!e.target.closest('[data-subfolders-on]')) return;
+  setSubfolders(true);
+  await loadStats(); loadFiles();
+});
 
 // ---------- start ----------
 await loadStats();

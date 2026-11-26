@@ -343,3 +343,10 @@ mark { background: var(--marker); color: inherit; padding: 0 2px; border-radius:
 .bar.indeterminate span { width: 35%; position: absolute; animation: st-slide 1.1s ease-in-out infinite; }
 @keyframes st-slide { from { left: -35%; } to { left: 100%; } }
 @media (prefers-reduced-motion: reduce) { .st-dot.busy, .bar.indeterminate span { animation: none; } }
+
+/* ---------- include subfolders ---------- */
+.subs-toggle { display: flex; align-items: center; gap: 10px; padding: 5px 8px 5px 0; border-radius: var(--radius-s); cursor: pointer; }
+.subs-toggle:hover { background: rgba(29, 38, 51, 0.06); }
+.subs-toggle .switch { margin-left: 6px; }
+.hidden-more { border: 0; background: var(--marker-soft); border-radius: 3px; padding: 1px 7px; cursor: pointer; }
+.hidden-more:hover { background: var(--marker); }
